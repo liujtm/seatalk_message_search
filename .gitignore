@@ -1,0 +1,28 @@
+# 用户真实配置（含内部群名等敏感信息，不入库）
+config.yaml
+
+# 聊天记录数据库与向量索引（含个人聊天内容）
+data/
+
+# 应用日志（可能含聊天内容片段）
+logs/
+
+# 本地下载的 embedding 模型（体积大，无需版本管理）
+models/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# macOS 元数据
+.DS_Store
+
+# Claude Code 会话数据
+.claude/
+
+# 虚拟环境
+.venv/
+venv/
+env/

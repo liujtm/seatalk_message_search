@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SeaTalk 语义搜索</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: #f5f6fa;
+      color: #333;
+      min-height: 100vh;
+    }
+
+    /* 顶栏 */
+    .header {
+      background: #1e293b;
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header h1 { font-size: 1.15rem; font-weight: 600; }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .header .stats { font-size: 0.8rem; color: #94a3b8; }
+    .stats-link {
+      font-size: 0.82rem; color: #7dd3fc; text-decoration: none;
+      border: 1px solid #334155; padding: 4px 10px; border-radius: 6px;
+      white-space: nowrap;
+    }
+    .stats-link:hover { background: #334155; }
+
+    /* 搜索区域 */
+    .search-bar {
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 16px 24px 12px;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+    .search-row {
+      display: flex;
+      gap: 8px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .search-input {
+      flex: 1;
+      padding: 9px 14px;
+      font-size: 1rem;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus { border-color: #3b82f6; }
+    .btn {
+      padding: 9px 18px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-secondary { background: #e2e8f0; color: #475569; }
+    .btn-secondary:hover { background: #cbd5e1; }
+
+    /* 过滤器行 */
+    .filter-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      max-width: 960px;
+      margin: 10px auto 0;
+      flex-wrap: wrap;
+    }
+
+    /* 时间快捷按钮 */
+    .filter-group { display: flex; flex-direction: column; gap: 6px; }
+    .filter-label { font-size: 0.75rem; color: #94a3b8; font-weight: 500; }
+    .time-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+    .time-btn {
+      padding: 4px 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      background: #fff;
+      font-size: 0.8rem;
+      color: #475569;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .time-btn:hover { background: #f1f5f9; }
+    .time-btn.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    .custom-range {
+      display: none;
+      gap: 6px;
+      align-items: center;
+      margin-top: 4px;
+    }
+    .custom-range.show { display: flex; }
+    .date-input {
+      padding: 4px 8px;
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      font-size: 0.8rem;
+      color: #475569;
+      outline: none;
+    }
+    .date-input:focus { border-color: #3b82f6; }
+
+    /* 多选下拉 */
+    .ms-wrap { position: relative; }
+    .ms-trigger {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 0.82rem;
+      color: #475569;
+      cursor: pointer;
+      min-width: 120px;
+      justify-content: space-between;
+      user-select: none;
+    }
+    .ms-trigger:hover { border-color: #cbd5e1; background: #f8fafc; }
+    .ms-trigger.has-selection { border-color: #3b82f6; color: #1d4ed8; background: #eff6ff; }
+    .ms-arrow { font-size: 0.65rem; color: #94a3b8; }
+    .ms-panel {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 220px;
+      max-width: 300px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      z-index: 100;
+      overflow: hidden;
+    }
+    .ms-panel.open { display: block; }
+    .ms-search {
+      padding: 8px 10px;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .ms-search input {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 0.82rem;
+      color: #475569;
+    }
+    .ms-actions {
+      padding: 4px 10px;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      gap: 10px;
+    }
+    .ms-action-btn {
+      font-size: 0.75rem;
+      color: #3b82f6;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .ms-action-btn:hover { text-decoration: underline; }
+    .ms-list {
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .ms-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      font-size: 0.82rem;
+      color: #374151;
+      cursor: pointer;
+    }
+    .ms-item:hover { background: #f8fafc; }
+    .ms-item input[type=checkbox] { cursor: pointer; }
+    .ms-item .ms-count {
+      margin-left: auto;
+      font-size: 0.72rem;
+      color: #94a3b8;
+    }
+    .ms-empty { padding: 16px; text-align: center; font-size: 0.82rem; color: #94a3b8; }
+
+    /* 会话类型图标 */
+    .session-type-icon {
+      cursor: default;
+      font-size: 0.88rem;
+      line-height: 1;
+    }
+
+    /* 同步状态 */
+    .sync-bar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      max-width: 960px;
+      margin: 8px auto 0;
+    }
+    .sync-info { font-size: 0.78rem; color: #94a3b8; }
+    .spinner {
+      display: inline-block;
+      width: 13px; height: 13px;
+      border: 2px solid #e2e8f0;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 3px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 主内容 */
+    .main { max-width: 960px; margin: 0 auto; padding: 20px 24px; }
+    .result-meta { font-size: 0.83rem; color: #64748b; margin-bottom: 14px; }
+
+    /* 卡片 */
+    .card-list { display: flex; flex-direction: column; gap: 10px; }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 14px 18px;
+      transition: box-shadow 0.15s;
+    }
+    .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 7px;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .card-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 0.73rem;
+      font-weight: 500;
+    }
+    .badge-session { background: #dbeafe; color: #1d4ed8; }
+    .badge-sender { background: #f0fdf4; color: #16a34a; }
+    .badge-type { background: #fef3c7; color: #d97706; }
+    .card-time { font-size: 0.78rem; color: #94a3b8; }
+    .card-content { font-size: 0.93rem; line-height: 1.6; word-break: break-word; color: #1e293b; }
+    .score-bar {
+      margin-top: 9px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .score-track {
+      flex: 1;
+      height: 3px;
+      background: #e2e8f0;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .score-fill { height: 100%; background: #3b82f6; border-radius: 2px; }
+    .score-text { font-size: 0.73rem; color: #94a3b8; min-width: 50px; }
+    .msg-id { font-size: 0.68rem; color: #cbd5e1; margin-left: auto; font-family: monospace; }
+
+    /* 分页 */
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 6px;
+      margin-top: 24px;
+      flex-wrap: wrap;
+    }
+    .page-btn {
+      padding: 5px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #fff;
+      color: #475569;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .page-btn:hover { background: #f1f5f9; }
+    .page-btn.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* 空状态 */
+    .empty { text-align: center; padding: 50px 24px; color: #94a3b8; }
+    .empty-icon { font-size: 2.5rem; margin-bottom: 12px; }
+
+    /* loading */
+    #loading { display: none; text-align: center; padding: 40px; color: #64748b; }
+
+    /* toast */
+    .toast {
+      position: fixed;
+      bottom: 20px; right: 20px;
+      background: #1e293b; color: #fff;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 200;
+      max-width: 300px;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>💬 SeaTalk 语义搜索</h1>
+  <div class="header-right">
+    <div class="stats">
+      消息 <strong id="totalMsgs">{{ total_messages }}</strong> 条 |
+      已索引 <strong id="indexedMsgs">{{ indexed_messages }}</strong> 条
+    </div>
+    <button class="stats-link" id="syncBtn" onclick="triggerSync()" style="background:none;cursor:pointer;color:#7dd3fc;">🔄 启动采集最新聊天记录</button>
+  </div>
+</div>
+
+<div class="search-bar">
+  <!-- 搜索框行 -->
+  <div class="search-row">
+    <input id="queryInput" class="search-input" type="text"
+           placeholder="输入任意描述，例如：上周和产品讨论的需求变更..." autofocus />
+    <button class="btn btn-primary" onclick="doSearch(1)">搜索</button>
+    <a class="btn btn-secondary" href="/stats" target="_blank" style="text-decoration:none;display:flex;align-items:center;">📊 聊天记录采集统计</a>
+  </div>
+
+  <!-- 过滤器行 -->
+  <div class="filter-row">
+
+    <!-- 时间范围 -->
+    <div class="filter-group">
+      <div class="filter-label">时间范围</div>
+      <div class="time-btns">
+        <button class="time-btn" data-days="1" onclick="setTimeDays(1, this)">今天</button>
+        <button class="time-btn" data-days="3" onclick="setTimeDays(3, this)">过去3天</button>
+        <button class="time-btn active" data-days="7" onclick="setTimeDays(7, this)">过去7天</button>
+        <button class="time-btn" data-days="30" onclick="setTimeDays(30, this)">过去30天</button>
+        <button class="time-btn" data-days="0" onclick="setTimeDays(0, this)">不限</button>
+        <button class="time-btn" data-days="-1" onclick="setTimeCustom(this)">自定义</button>
+      </div>
+      <div class="custom-range" id="customRange">
+        <input type="date" id="dateFrom" class="date-input" onchange="applyCustomRange()" />
+        <span style="color:#94a3b8;font-size:0.8rem">至</span>
+        <input type="date" id="dateTo" class="date-input" onchange="applyCustomRange()" />
+      </div>
+    </div>
+
+    <!-- 会话类型 -->
+    <div class="filter-group">
+      <div class="filter-label">会话类型</div>
+      <div class="time-btns">
+        <button class="time-btn active" id="typeAll"     onclick="setSessionType('all', this)">全部</button>
+        <button class="time-btn"        id="typeGroup"   onclick="setSessionType('group', this)">仅群聊</button>
+        <button class="time-btn"        id="typeContact" onclick="setSessionType('contact', this)">仅私聊</button>
+      </div>
+    </div>
+
+    <!-- 群选择 -->
+    <div class="filter-group" id="filterGroupWrap">
+      <div class="filter-label">群组</div>
+      <div class="ms-wrap" id="msGroups">
+        <div class="ms-trigger" onclick="toggleMs('msGroups')">
+          <span id="msGroupsLabel">全部群</span>
+          <span class="ms-arrow">▼</span>
+        </div>
+        <div class="ms-panel" id="msGroupsPanel">
+          <div class="ms-search">
+            <span style="color:#94a3b8;font-size:0.82rem">🔍</span>
+            <input type="text" placeholder="搜索群名..." oninput="filterMs('msGroups', this.value)" />
+          </div>
+          <div class="ms-actions">
+            <button class="ms-action-btn" onclick="selectAllMs('msGroups')">全选</button>
+            <button class="ms-action-btn" onclick="clearMs('msGroups')">清空</button>
+          </div>
+          <div class="ms-list" id="msGroupsList">
+            <div class="ms-empty">加载中...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 私聊选择 -->
+    <div class="filter-group" id="filterContactWrap">
+      <div class="filter-label">私聊</div>
+      <div class="ms-wrap" id="msContacts">
+        <div class="ms-trigger" onclick="toggleMs('msContacts')">
+          <span id="msContactsLabel">全部私聊</span>
+          <span class="ms-arrow">▼</span>
+        </div>
+        <div class="ms-panel" id="msContactsPanel">
+          <div class="ms-search">
+            <span style="color:#94a3b8;font-size:0.82rem">🔍</span>
+            <input type="text" placeholder="搜索联系人..." oninput="filterMs('msContacts', this.value)" />
+          </div>
+          <div class="ms-actions">
+            <button class="ms-action-btn" onclick="selectAllMs('msContacts')">全选</button>
+            <button class="ms-action-btn" onclick="clearMs('msContacts')">清空</button>
+          </div>
+          <div class="ms-list" id="msContactsList">
+            <div class="ms-empty">加载中...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 发送者选择 -->
+    <div class="filter-group" id="filterSenderWrap">
+      <div class="filter-label">群聊发送者</div>
+      <div class="ms-wrap" id="msSenders">
+        <div class="ms-trigger" onclick="toggleMs('msSenders')">
+          <span id="msSendersLabel">全部群成员</span>
+          <span class="ms-arrow">▼</span>
+        </div>
+        <div class="ms-panel" id="msSendersPanel">
+          <div class="ms-search">
+            <span style="color:#94a3b8;font-size:0.82rem">🔍</span>
+            <input type="text" placeholder="搜索发送者..." oninput="filterMs('msSenders', this.value)" />
+          </div>
+          <div class="ms-actions">
+            <button class="ms-action-btn" onclick="selectAllMs('msSenders')">全选</button>
+            <button class="ms-action-btn" onclick="clearMs('msSenders')">清空</button>
+          </div>
+          <div class="ms-list" id="msSendersList">
+            <div class="ms-empty">加载中...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 同步状态 -->
+  <div class="sync-bar">
+    <span class="sync-info" id="syncInfo">
+      {% if last_sync %}
+        上次同步: {{ last_sync.synced_at | timestamp_to_str }} · 共 {{ last_sync.msg_count }} 条 · 新增 {{ last_sync.new_count }} 条
+      {% else %}
+        尚未同步
+      {% endif %}
+    </span>
+    <span id="syncSpinner" style="display:none">
+      <span class="spinner"></span>同步中...
+    </span>
+  </div>
+</div>
+
+<div class="main">
+  <div id="loading"><span class="spinner"></span> 搜索中...</div>
+  <div id="resultMeta" class="result-meta"></div>
+  <div id="results" class="card-list"></div>
+  <div id="pagination" class="pagination"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // -----------------------------------------------------------------------
+  // 状态
+  // -----------------------------------------------------------------------
+  let currentPage = 1;
+  let currentQuery = "";
+  let syncPollTimer = null;
+
+  // 时间过滤
+  let timeFrom = 0;
+  let timeTo = 0;
+
+  // 会话类型过滤
+  let sessionType = "all";
+
+  // 多选状态：{ msId -> { id -> {id, name, checked, count} } }
+  const msData = { msGroups: {}, msContacts: {}, msSenders: {} };
+  const msDefaultLabel = { msGroups: "全部群", msContacts: "全部私聊", msSenders: "全部群成员" };
+
+  // -----------------------------------------------------------------------
+  // 初始化：设置默认时间（过去7天）+ 加载会话列表 + 默认展示第1页
+  // -----------------------------------------------------------------------
+  document.addEventListener("DOMContentLoaded", () => {
+    setTimeDays(7, document.querySelector('.time-btn[data-days="7"]'));
+    loadSessions().then(() => doSearch(1));
+  });
+
+  document.getElementById("queryInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") doSearch(1);
+  });
+
+  // 点击外部关闭多选面板
+  document.addEventListener("click", e => {
+    ["msGroups", "msContacts", "msSenders"].forEach(id => {
+      const wrap = document.getElementById(id);
+      if (wrap && !wrap.contains(e.target)) {
+        document.getElementById(id + "Panel").classList.remove("open");
+      }
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // 时间范围
+  // -----------------------------------------------------------------------
+  function setTimeDays(days, btn) {
+    document.querySelectorAll(".time-btn[data-days]").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("customRange").classList.remove("show");
+
+    if (days === 0) {
+      timeFrom = 0; timeTo = 0;
+    } else {
+      const now = Math.floor(Date.now() / 1000);
+      timeFrom = now - days * 86400;
+      timeTo = 0;
+    }
+  }
+
+  function setTimeCustom(btn) {
+    document.querySelectorAll(".time-btn[data-days]").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("customRange").classList.add("show");
+    applyCustomRange();
+  }
+
+  function applyCustomRange() {
+    const from = document.getElementById("dateFrom").value;
+    const to = document.getElementById("dateTo").value;
+    timeFrom = from ? Math.floor(new Date(from).getTime() / 1000) : 0;
+    timeTo = to ? Math.floor(new Date(to + "T23:59:59").getTime() / 1000) : 0;
+  }
+
+  // -----------------------------------------------------------------------
+  // 会话类型
+  // -----------------------------------------------------------------------
+  function setSessionType(type, btn) {
+    sessionType = type;
+    ["typeAll", "typeGroup", "typeContact"].forEach(id => {
+      document.getElementById(id).classList.remove("active");
+    });
+    btn.classList.add("active");
+    const groupWrap   = document.getElementById("filterGroupWrap");
+    const contactWrap = document.getElementById("filterContactWrap");
+    const senderWrap  = document.getElementById("filterSenderWrap");
+    if (type === "group") {
+      groupWrap.style.display   = "";
+      contactWrap.style.display = "none";
+      senderWrap.style.display  = "";
+      clearMs("msContacts");
+    } else if (type === "contact") {
+      groupWrap.style.display   = "none";
+      contactWrap.style.display = "";
+      senderWrap.style.display  = "none";
+      clearMs("msGroups");
+      clearMs("msSenders");
+    } else {
+      groupWrap.style.display   = "";
+      contactWrap.style.display = "";
+      senderWrap.style.display  = "";
+    }
+    loadSenders();
+  }
+
+  // -----------------------------------------------------------------------
+  // 多选下拉
+  // -----------------------------------------------------------------------
+  async function loadSessions() {
+    try {
+      const res = await fetch("/api/sessions");
+      const data = await res.json();
+      buildMs("msGroups", data.groups || [], "session_id", "session_name", "msg_count");
+      buildMs("msContacts", data.contacts || [], "session_id", "session_name", "msg_count");
+    } catch(e) { console.warn("load sessions failed", e); }
+    await loadSenders();
+  }
+
+  async function loadSenders() {
+    // 只根据已选群（不含私聊）过滤群聊发送者列表
+    const selectedGroups = Object.values(msData.msGroups).filter(i => i.checked).map(i => i.id);
+    let sidList = selectedGroups;
+    // 若没选具体群但当前是仅私聊模式，直接不加载发送者
+    if (sessionType === "contact") return;
+    // 若没选具体群，按群聊类型加载所有群成员
+    if (!sidList.length && sessionType === "group") {
+      sidList = Object.keys(msData.msGroups);
+    }
+    let url = "/api/senders";
+    if (sidList.length) url += `?session_ids=${sidList.map(encodeURIComponent).join(",")}`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      const prevSelected = new Set(
+        Object.values(msData.msSenders).filter(i => i.checked).map(i => i.id)
+      );
+      buildMs("msSenders", data.senders || [], "sender_id", "sender_name", "msg_count");
+      // 保留仍在列表中的已选项
+      Object.values(msData.msSenders).forEach(item => {
+        if (prevSelected.has(item.id)) item.checked = true;
+      });
+      renderMsList("msSenders", "");
+      updateMsTrigger("msSenders");
+    } catch(e) { console.warn("load senders failed", e); }
+  }
+
+  function buildMs(msId, items, idKey, nameKey, countKey) {
+    msData[msId] = {};
+    items.forEach(item => {
+      msData[msId][item[idKey]] = {
+        id: item[idKey],
+        name: item[nameKey] || item[idKey],
+        count: item[countKey] || 0,
+        checked: false,
+      };
+    });
+    renderMsList(msId, "");
+  }
+
+  function renderMsList(msId, filter) {
+    const listEl = document.getElementById(msId + "List");
+    const items = Object.values(msData[msId]).filter(
+      item => !filter || item.name.toLowerCase().includes(filter.toLowerCase())
+    );
+    if (!items.length) {
+      listEl.innerHTML = '<div class="ms-empty">无匹配项</div>';
+      return;
+    }
+    listEl.innerHTML = items.map(item => `
+      <label class="ms-item">
+        <input type="checkbox" ${item.checked ? "checked" : ""}
+               onchange="toggleMsItem('${msId}', '${esc(item.id)}', this.checked)" />
+        <span>${esc(item.name)}</span>
+        <span class="ms-count">${item.count}</span>
+      </label>
+    `).join("");
+  }
+
+  function toggleMs(msId) {
+    const panel = document.getElementById(msId + "Panel");
+    // 关闭其他
+    ["msGroups", "msContacts", "msSenders"].forEach(id => {
+      if (id !== msId) document.getElementById(id + "Panel").classList.remove("open");
+    });
+    panel.classList.toggle("open");
+  }
+
+  function filterMs(msId, value) {
+    renderMsList(msId, value);
+  }
+
+  function toggleMsItem(msId, itemId, checked) {
+    if (msData[msId][itemId]) msData[msId][itemId].checked = checked;
+    updateMsTrigger(msId);
+    if (msId === "msGroups") loadSenders();
+  }
+
+  function selectAllMs(msId) {
+    Object.values(msData[msId]).forEach(item => item.checked = true);
+    renderMsList(msId, "");
+    updateMsTrigger(msId);
+    if (msId === "msGroups") loadSenders();
+  }
+
+  function clearMs(msId) {
+    Object.values(msData[msId]).forEach(item => item.checked = false);
+    renderMsList(msId, "");
+    updateMsTrigger(msId);
+    if (msId === "msGroups") loadSenders();
+  }
+
+  function updateMsTrigger(msId) {
+    const selected = Object.values(msData[msId]).filter(i => i.checked);
+    const label = document.getElementById(msId + "Label");
+    const trigger = document.querySelector(`#${msId} .ms-trigger`);
+    if (selected.length === 0) {
+      label.textContent = msDefaultLabel[msId];
+      trigger.classList.remove("has-selection");
+    } else if (selected.length === 1) {
+      label.textContent = selected[0].name;
+      trigger.classList.add("has-selection");
+    } else {
+      label.textContent = `已选 ${selected.length} 个`;
+      trigger.classList.add("has-selection");
+    }
+  }
+
+  function getSelectedSessionIds() {
+    const ids = [];
+    ["msGroups", "msContacts"].forEach(msId => {
+      Object.values(msData[msId]).filter(i => i.checked).forEach(i => ids.push(i.id));
+    });
+    return ids;
+  }
+
+  // -----------------------------------------------------------------------
+  // 搜索
+  // -----------------------------------------------------------------------
+  async function doSearch(page) {
+    const q = document.getElementById("queryInput").value.trim();
+
+    currentQuery = q;
+    currentPage = page;
+
+    const sessionIds = getSelectedSessionIds();
+    const senderIds  = Object.values(msData.msSenders).filter(i => i.checked).map(i => i.id);
+    let url = `/api/search?q=${encodeURIComponent(q)}&page=${page}`;
+    if (timeFrom > 0) url += `&time_from=${timeFrom}`;
+    if (timeTo > 0)   url += `&time_to=${timeTo}`;
+    if (sessionIds.length) url += `&session_ids=${sessionIds.map(encodeURIComponent).join(",")}`;
+    else if (sessionType !== "all") url += `&session_type=${sessionType}`;
+    if (senderIds.length)  url += `&sender_ids=${senderIds.map(encodeURIComponent).join(",")}`;
+
+    document.getElementById("loading").style.display = "block";
+    document.getElementById("results").innerHTML = "";
+    document.getElementById("resultMeta").textContent = "";
+    document.getElementById("pagination").innerHTML = "";
+
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      document.getElementById("loading").style.display = "none";
+      if (data.error) { showEmpty(data.error); return; }
+      renderMeta(data);
+      renderResults(data.results);
+      renderPagination(data);
+    } catch (err) {
+      document.getElementById("loading").style.display = "none";
+      showEmpty("搜索请求失败: " + err.message);
+    }
+  }
+
+  function renderMeta(data) {
+    const desc = data.query
+      ? `找到 ${data.total} 条相关记录，第 ${data.page}/${data.total_pages} 页`
+      : `按时间倒序，共 ${data.total} 条，第 ${data.page}/${data.total_pages} 页`;
+    document.getElementById("resultMeta").textContent = desc;
+  }
+
+  function renderResults(results) {
+    const container = document.getElementById("results");
+    if (!results || !results.length) { showEmpty("未找到相关聊天记录，请尝试其他描述"); return; }
+    container.innerHTML = results.map(r => {
+      const typeLabel = {text:"文本",image:"图片",file:"文件",video:"视频",link:"链接"}[r.content_type] || r.content_type;
+      const isGroup = r.session_id && r.session_id.startsWith("group-");
+      const sessionIcon = isGroup ? "👥" : "💬";
+      const sessionTypeLabel = isGroup ? "群聊" : "私聊";
+      const scoreBar = r.score != null
+        ? `<div class="score-bar">
+            <div class="score-track"><div class="score-fill" style="width:${Math.round(r.score*100)}%"></div></div>
+            <span class="score-text">相关度 ${Math.round(r.score*100)}%</span>
+            <span class="msg-id">MsgID: ${esc(r.id)}</span>
+           </div>`
+        : `<div class="score-bar"><span class="msg-id" style="margin-left:0">MsgID: ${esc(r.id)}</span></div>`;
+      return `
+        <div class="card">
+          <div class="card-header">
+            <div class="card-meta">
+              <span class="session-type-icon" title="${sessionTypeLabel}">${sessionIcon}</span>
+              <span class="badge badge-session">${esc(r.session_name || r.session_id)}</span>
+              <span class="badge badge-sender">👤 ${esc(r.sender_name || r.sender_id)}</span>
+              ${r.content_type && r.content_type !== 'text' ? `<span class="badge badge-type">${esc(typeLabel)}</span>` : ''}
+            </div>
+            <span class="card-time">${esc(r.datetime)}</span>
+          </div>
+          <div class="card-content">${esc(r.content)}</div>
+          ${scoreBar}
+        </div>`;
+    }).join("");
+  }
+
+  function renderPagination(data) {
+    if (data.total_pages <= 1) return;
+    const c = document.getElementById("pagination");
+    let html = `<button class="page-btn" ${data.page<=1?"disabled":""} onclick="doSearch(${data.page-1})">‹ 上一页</button>`;
+    for (const p of buildPageRange(data.page, data.total_pages)) {
+      if (p === "...") html += `<span style="color:#94a3b8;padding:0 4px">…</span>`;
+      else html += `<button class="page-btn ${p===data.page?"active":""}" onclick="doSearch(${p})">${p}</button>`;
+    }
+    html += `<button class="page-btn" ${data.page>=data.total_pages?"disabled":""} onclick="doSearch(${data.page+1})">下一页 ›</button>`;
+    c.innerHTML = html;
+  }
+
+  function buildPageRange(cur, total) {
+    if (total <= 7) return Array.from({length: total}, (_, i) => i+1);
+    if (cur <= 4)        return [1,2,3,4,5,"...",total];
+    if (cur >= total-3)  return [1,"...",total-4,total-3,total-2,total-1,total];
+    return [1,"...",cur-1,cur,cur+1,"...",total];
+  }
+
+  function showEmpty(msg) {
+    document.getElementById("results").innerHTML =
+      `<div class="empty"><div class="empty-icon">🔍</div><p>${esc(msg)}</p></div>`;
+  }
+
+  function esc(str) {
+    if (str === null || str === undefined) return "";
+    return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  // -----------------------------------------------------------------------
+  // 同步
+  // -----------------------------------------------------------------------
+  async function triggerSync() {
+    const btn = document.getElementById("syncBtn");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/sync", { method: "POST" });
+      const data = await res.json();
+      showToast(data.message);
+      if (res.status !== 409) startSyncPoll();
+    } catch(err) {
+      showToast("触发同步失败: " + err.message);
+      btn.disabled = false;
+    }
+  }
+
+  function startSyncPoll() {
+    document.getElementById("syncSpinner").style.display = "inline";
+    if (syncPollTimer) clearInterval(syncPollTimer);
+    syncPollTimer = setInterval(async () => {
+      try {
+        const data = await (await fetch("/api/sync/status")).json();
+        document.getElementById("totalMsgs").textContent = data.total_messages;
+        document.getElementById("indexedMsgs").textContent = data.indexed_messages;
+        if (!data.running) {
+          clearInterval(syncPollTimer); syncPollTimer = null;
+          document.getElementById("syncSpinner").style.display = "none";
+          document.getElementById("syncBtn").disabled = false;
+          if (data.last_result?.status === "success") {
+            document.getElementById("syncInfo").textContent =
+              `同步完成 · 共 ${data.last_result.msg_count} 条 · 新增 ${data.last_result.new_count} 条`;
+            showToast(`同步完成！新增 ${data.last_result.new_count} 条消息`);
+            loadSessions(); // 刷新会话列表和发送者列表
+          } else if (data.last_result) {
+            showToast("同步失败: " + (data.last_result.error || "未知错误"), true);
+          }
+        }
+      } catch(e) {}
+    }, 2000);
+  }
+
+  function showToast(msg, isError=false) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.style.background = isError ? "#dc2626" : "#1e293b";
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 4000);
+  }
+</script>
+</body>
+</html>

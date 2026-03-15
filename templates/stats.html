@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>聊天记录统计 - SeaTalk</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5f6fa;
+      color: #333;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: #1e293b;
+      color: #fff;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .header a {
+      color: #7dd3fc;
+      text-decoration: none;
+      font-size: 0.85rem;
+      border: 1px solid #334155;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+    .header a:hover { background: #334155; }
+    .header h1 { font-size: 1.1rem; font-weight: 600; flex: 1; }
+
+    .main { max-width: 1000px; margin: 0 auto; padding: 24px; }
+
+    /* 摘要卡片 */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .summary-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .summary-card .label { font-size: 0.78rem; color: #94a3b8; margin-bottom: 6px; }
+    .summary-card .value { font-size: 1.45rem; font-weight: 700; color: #1e293b; }
+    .summary-card .sub { font-size: 0.75rem; color: #64748b; margin-top: 4px; }
+
+    /* 区块 */
+    .section {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .section-title { font-size: 0.95rem; font-weight: 600; color: #1e293b; }
+
+    /* 切换按钮 */
+    .toggle-btns { display: flex; gap: 4px; }
+    .toggle-btn {
+      padding: 4px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      background: #fff;
+      font-size: 0.78rem;
+      color: #475569;
+      cursor: pointer;
+    }
+    .toggle-btn.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+
+    /* 表格 */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .data-table th {
+      text-align: left;
+      padding: 8px 12px;
+      border-bottom: 2px solid #e2e8f0;
+      color: #64748b;
+      font-weight: 600;
+      font-size: 0.78rem;
+    }
+    .data-table td { padding: 7px 12px; border-bottom: 1px solid #f1f5f9; color: #374151; }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: #f8fafc; }
+    .data-table td.num { text-align: right; font-variant-numeric: tabular-nums; color: #1e293b; font-weight: 500; }
+    .data-table td.rank { color: #94a3b8; width: 36px; }
+
+    /* 图表容器 */
+    .chart-wrap { position: relative; height: 260px; }
+
+    /* loading */
+    .loading-mask {
+      text-align: center;
+      padding: 60px;
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+
+    /* 双列布局 */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 700px) { .two-col { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📊 聊天记录统计</h1>
+  <a href="/">← 返回搜索</a>
+</div>
+
+<div class="main" id="main">
+  <div class="loading-mask">加载中...</div>
+</div>
+
+<script>
+  const DOW_LABELS = ["周日","周一","周二","周三","周四","周五","周六"];
+  let dailyChart = null;
+  let hourlyChart = null;
+  let weekdayChart = null;
+  let statsData = null;
+  let dailyLimit = 30;  // 默认展示最近30天
+
+  async function loadStats() {
+    try {
+      const res = await fetch("/api/stats");
+      statsData = await res.json();
+      render(statsData);
+    } catch(e) {
+      document.getElementById("main").innerHTML =
+        `<div class="loading-mask">加载失败: ${e.message}</div>`;
+    }
+  }
+
+  function render(d) {
+    const main = document.getElementById("main");
+    const totalDays = d.daily ? d.daily.length : 0;
+
+    main.innerHTML = `
+      <!-- 摘要卡片 -->
+      <div class="summary-grid">
+        <div class="summary-card">
+          <div class="label">消息总条数</div>
+          <div class="value">${fmtNum(d.total)}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">最早一条</div>
+          <div class="value" style="font-size:1rem">${d.earliest_str || "-"}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">最近一条</div>
+          <div class="value" style="font-size:1rem">${d.latest_str || "-"}</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">覆盖天数</div>
+          <div class="value">${totalDays}</div>
+          <div class="sub">有消息的日期数</div>
+        </div>
+      </div>
+
+      <!-- 按天统计 -->
+      <div class="section">
+        <div class="section-header">
+          <span class="section-title">按天消息数</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="display:flex;align-items:center;gap:5px;font-size:0.8rem;color:#64748b;">
+              <span>展示最近</span>
+              <input id="dailyLimitInput" type="number" min="1" max="365" value="30"
+                style="width:52px;padding:3px 6px;border:1px solid #e2e8f0;border-radius:5px;font-size:0.8rem;text-align:center;outline:none;"
+                onchange="applyDailyLimit()" onkeydown="if(event.key==='Enter')applyDailyLimit()" />
+              <span>天</span>
+            </div>
+            <div class="toggle-btns">
+              <button class="toggle-btn" id="dailyTableBtn" onclick="showDaily('table')">表格</button>
+              <button class="toggle-btn active" id="dailyChartBtn" onclick="showDaily('chart')">柱状图</button>
+            </div>
+          </div>
+        </div>
+        <div id="dailyTable" style="display:none">${buildDailyTable(d.daily, 30)}</div>
+        <div id="dailyChart"><div class="chart-wrap"><canvas id="dailyCanvas"></canvas></div></div>
+      </div>
+
+      <!-- Top20 群 + 私聊 -->
+      <div class="two-col">
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Top 20 群</span>
+          </div>
+          ${buildRankTable(d.top_groups, "群名")}
+        </div>
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">Top 20 私聊</span>
+          </div>
+          ${buildRankTable(d.top_contacts, "联系人")}
+        </div>
+      </div>
+
+      <!-- 按小时 + 按星期 -->
+      <div class="two-col">
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">24小时活跃分布</span>
+            <div class="toggle-btns">
+              <button class="toggle-btn" id="hourlyTableBtn" onclick="showHourly('table')">表格</button>
+              <button class="toggle-btn active" id="hourlyChartBtn" onclick="showHourly('chart')">柱状图</button>
+            </div>
+          </div>
+          <div id="hourlyTable" style="display:none">${buildHourlyTable(d.hourly)}</div>
+          <div id="hourlyChart"><div class="chart-wrap"><canvas id="hourlyCanvas"></canvas></div></div>
+        </div>
+        <div class="section">
+          <div class="section-header">
+            <span class="section-title">星期活跃分布</span>
+            <div class="toggle-btns">
+              <button class="toggle-btn" id="weekdayTableBtn" onclick="showWeekday('table')">表格</button>
+              <button class="toggle-btn active" id="weekdayChartBtn" onclick="showWeekday('chart')">柱状图</button>
+            </div>
+          </div>
+          <div id="weekdayTable" style="display:none">${buildWeekdayTable(d.weekday)}</div>
+          <div id="weekdayChart"><div class="chart-wrap"><canvas id="weekdayCanvas"></canvas></div></div>
+        </div>
+      </div>
+    `;
+
+    // 默认展示柱状图，渲染完 DOM 后立即初始化三个图表
+    const allRows = [...d.daily];
+    const dailyRows = allRows.slice(-dailyLimit);
+    dailyChart = makeBarChart("dailyCanvas", dailyRows.map(r=>r.day), dailyRows.map(r=>r.cnt), "消息数");
+
+    const hmap = {};
+    (d.hourly||[]).forEach(r => { hmap[r.hour] = r.cnt; });
+    hourlyChart = makeBarChart(
+      "hourlyCanvas",
+      Array.from({length:24}, (_,h) => String(h).padStart(2,"0")+":00"),
+      Array.from({length:24}, (_,h) => hmap[h]||0),
+      "消息数"
+    );
+
+    const wmap = {};
+    (d.weekday||[]).forEach(r => { wmap[r.dow] = r.cnt; });
+    weekdayChart = makeBarChart(
+      "weekdayCanvas",
+      DOW_LABELS,
+      Array.from({length:7}, (_,i) => wmap[i]||0),
+      "消息数"
+    );
+  }
+
+  // -----------------------------------------------------------------------
+  // 表格构建
+  // -----------------------------------------------------------------------
+  function buildDailyTable(rows, limit) {
+    if (!rows || !rows.length) return '<div style="color:#94a3b8;padding:16px;text-align:center">暂无数据</div>';
+    const sorted = [...rows].reverse().slice(0, limit); // 最新在前，取最近 limit 天
+    return `<div style="max-height:280px;overflow-y:auto">
+      <table class="data-table">
+        <thead><tr><th>日期</th><th style="text-align:right">消息数</th></tr></thead>
+        <tbody>${sorted.map(r => `<tr><td>${r.day}</td><td class="num">${fmtNum(r.cnt)}</td></tr>`).join("")}</tbody>
+      </table></div>`;
+  }
+
+  function buildRankTable(rows, nameLabel) {
+    if (!rows || !rows.length) return '<div style="color:#94a3b8;padding:16px;text-align:center">暂无数据</div>';
+    return `<table class="data-table">
+      <thead><tr><th>#</th><th>${nameLabel}</th><th style="text-align:right">消息数</th></tr></thead>
+      <tbody>${rows.map((r, i) =>
+        `<tr><td class="rank">${i+1}</td><td>${esc(r.session_name || "-")}</td><td class="num">${fmtNum(r.cnt)}</td></tr>`
+      ).join("")}</tbody>
+    </table>`;
+  }
+
+  function buildHourlyTable(rows) {
+    // 补全0-23时
+    const map = {};
+    (rows || []).forEach(r => { map[r.hour] = r.cnt; });
+    const full = Array.from({length:24}, (_, h) => ({hour: h, cnt: map[h] || 0}));
+    return `<div style="max-height:280px;overflow-y:auto">
+      <table class="data-table">
+        <thead><tr><th>时段</th><th style="text-align:right">消息数</th></tr></thead>
+        <tbody>${full.map(r => `<tr><td>${String(r.hour).padStart(2,"0")}:00</td><td class="num">${fmtNum(r.cnt)}</td></tr>`).join("")}</tbody>
+      </table></div>`;
+  }
+
+  function buildWeekdayTable(rows) {
+    const map = {};
+    (rows || []).forEach(r => { map[r.dow] = r.cnt; });
+    const full = Array.from({length:7}, (_, i) => ({dow: i, cnt: map[i] || 0}));
+    return `<table class="data-table">
+      <thead><tr><th>星期</th><th style="text-align:right">消息数</th></tr></thead>
+      <tbody>${full.map(r => `<tr><td>${DOW_LABELS[r.dow]}</td><td class="num">${fmtNum(r.cnt)}</td></tr>`).join("")}</tbody>
+    </table>`;
+  }
+
+  // -----------------------------------------------------------------------
+  // 图表切换
+  // -----------------------------------------------------------------------
+  function applyDailyLimit() {
+    const input = document.getElementById("dailyLimitInput");
+    const val = parseInt(input.value, 10);
+    if (!val || val < 1) return;
+    dailyLimit = val;
+    if (!statsData) return;
+    const rows = statsData.daily.slice(-dailyLimit);
+    // 更新图表
+    if (dailyChart) {
+      dailyChart.data.labels = rows.map(r => r.day);
+      dailyChart.data.datasets[0].data = rows.map(r => r.cnt);
+      dailyChart.update();
+    }
+    // 更新表格
+    document.getElementById("dailyTable").innerHTML = buildDailyTable(statsData.daily, dailyLimit);
+  }
+
+  function showDaily(mode) {
+    document.getElementById("dailyTableBtn").classList.toggle("active", mode==="table");
+    document.getElementById("dailyChartBtn").classList.toggle("active", mode==="chart");
+    document.getElementById("dailyTable").style.display = mode==="table" ? "" : "none";
+    document.getElementById("dailyChart").style.display = mode==="chart" ? "" : "none";
+    if (mode === "chart" && !dailyChart && statsData) {
+      const rows = statsData.daily.slice(-dailyLimit);
+      dailyChart = makeBarChart("dailyCanvas", rows.map(r=>r.day), rows.map(r=>r.cnt), "消息数");
+    }
+  }
+
+  function showHourly(mode) {
+    document.getElementById("hourlyTableBtn").classList.toggle("active", mode==="table");
+    document.getElementById("hourlyChartBtn").classList.toggle("active", mode==="chart");
+    document.getElementById("hourlyTable").style.display = mode==="table" ? "" : "none";
+    document.getElementById("hourlyChart").style.display = mode==="chart" ? "" : "none";
+    if (mode === "chart" && !hourlyChart && statsData) {
+      const map = {};
+      (statsData.hourly||[]).forEach(r => { map[r.hour] = r.cnt; });
+      const labels = Array.from({length:24}, (_,h) => String(h).padStart(2,"0")+":00");
+      const data = Array.from({length:24}, (_,h) => map[h]||0);
+      hourlyChart = makeBarChart("hourlyCanvas", labels, data, "消息数");
+    }
+  }
+
+  function showWeekday(mode) {
+    document.getElementById("weekdayTableBtn").classList.toggle("active", mode==="table");
+    document.getElementById("weekdayChartBtn").classList.toggle("active", mode==="chart");
+    document.getElementById("weekdayTable").style.display = mode==="table" ? "" : "none";
+    document.getElementById("weekdayChart").style.display = mode==="chart" ? "" : "none";
+    if (mode === "chart" && !weekdayChart && statsData) {
+      const map = {};
+      (statsData.weekday||[]).forEach(r => { map[r.dow] = r.cnt; });
+      const data = Array.from({length:7}, (_,i) => map[i]||0);
+      weekdayChart = makeBarChart("weekdayCanvas", DOW_LABELS, data, "消息数");
+    }
+  }
+
+  function makeBarChart(canvasId, labels, data, label) {
+    return new Chart(document.getElementById(canvasId), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{
+          label,
+          data,
+          backgroundColor: "rgba(59,130,246,0.6)",
+          borderColor: "rgba(59,130,246,0.9)",
+          borderWidth: 1,
+          borderRadius: 3,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { font: { size: 11 }, maxRotation: 45 } },
+          y: { beginAtZero: true, ticks: { font: { size: 11 } } },
+        },
+      }
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // 工具
+  // -----------------------------------------------------------------------
+  function fmtNum(n) { return Number(n).toLocaleString(); }
+  function esc(str) {
+    if (!str) return "";
+    return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  loadStats();
+</script>
+</body>
+</html>

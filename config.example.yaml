@@ -1,0 +1,27 @@
+seatalk:
+  cdp_port: 9222                      # CDP 远程调试端口
+  time_range_days: 15                 # 采集最近 N 天的消息
+  max_messages_per_session: 5000      # 每个会话最多采集条数
+  ignore_group_patterns:              # 忽略群名称的正则列表（正则匹配）
+    - "告警"
+    # 在此添加你想过滤的群名，支持正则，例如：
+    # - "运维群"
+    # - "^通知$"
+    # - "oncall|support"
+
+embedding:
+  model_name: "paraphrase-multilingual-MiniLM-L12-v2"  # 支持中英文本地模型
+  batch_size: 64
+  index_chunk_size: 2000    # 每批次向量化条数，避免内存溢出
+
+web:
+  host: "127.0.0.1"
+  port: 12345
+  page_size: 20                       # 每页返回条数
+  search_top_k: 500                   # 向量检索候选数量（分页前）
+
+storage:
+  sqlite_path: "data/messages.sqlite3"
+  chroma_path: "data/chroma"
+  log_path: "logs/app.log"
+  log_max_days: 7                     # 日志文件最多保留天数
