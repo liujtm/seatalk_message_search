@@ -121,6 +121,76 @@ seatalk_message_search/
 
 ## 技术原理
 
+### 架构总览
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                        main.py                          │
+│  Entry point: orchestrates the full pipeline            │
+└──────┬──────────────────┬───────────────────────────────┘
+       │                  │
+       ▼                  ▼
+┌──────────────┐   ┌─────────────────────────────────────┐
+│  launcher.py │   │          collector.py               │
+│              │   │                                     │
+│ 关闭并重启   │   │  CDPHelper ─── WebSocket ──► SeaTalk│
+│ SeaTalk，    │   │                                     │
+│ 开启 CDP     │   │  向渲染进程注入 JavaScript           │
+│ 调试模式     │   │  ┌──────────────────────────────┐   │
+│ port=9222    │   │  │ store.getState()  (Redux)    │   │
+└──────────────┘   │  │ sqlite.all(SQL)   (internal) │   │
+                   │  └──────────────┬───────────────┘   │
+                   │                 │                    │
+                   │    List[Message]│                    │
+                   └─────────────────┼────────────────────┘
+                                     │
+                                     ▼
+                         ┌───────────────────────┐
+                         │      storage.py        │
+                         │                        │
+                         │  SQLite (messages)     │
+                         │  ┌──────────────────┐  │
+                         │  │ id (mid)         │  │
+                         │  │ session_id/name  │  │
+                         │  │ sender_id/name   │  │
+                         │  │ timestamp        │  │
+                         │  │ content          │  │
+                         │  │ indexed ◄── flag │  │
+                         │  └──────────────────┘  │
+                         └───────────┬────────────┘
+                                     │ unindexed rows
+                                     ▼
+                         ┌───────────────────────┐
+                         │      indexer.py        │
+                         │                        │
+                         │  SentenceTransformer   │
+                         │  (384-dim embeddings)  │
+                         │         │              │
+                         │         ▼              │
+                         │    ChromaDB            │
+                         │  (cosine similarity)   │
+                         └───────────┬────────────┘
+                                     │
+                                     ▼
+                         ┌───────────────────────┐
+                         │        web.py          │
+                         │                        │
+                         │  FastAPI + Jinja2      │
+                         │                        │
+                         │  GET /api/search       │
+                         │    ┌────────────────┐  │
+                         │    │ vector search  │  │
+                         │    │    +           │  │
+                         │    │ keyword search │  │
+                         │    │ (jieba 分词)   │  │
+                         │    │    = merged    │  │
+                         │    │    score       │  │
+                         │    └────────────────┘  │
+                         │  POST /api/sync        │
+                         │  GET  /api/stats       │
+                         └───────────────────────┘
+```
+
 SeaTalk 基于 Electron 构建，内部的 SQLite 数据库通过渲染进程暴露的 `window.sqlite` 对象可直接查询。通过 Chrome DevTools Protocol（CDP）向渲染进程注入 JavaScript，即可在不解密数据库文件的前提下读取聊天记录。
 
 ### 关键对象：`sqlite` 与 `store`
