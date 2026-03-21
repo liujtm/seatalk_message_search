@@ -64,6 +64,13 @@ def parse_args():
         action="store_true",
         help="清空向量索引（data/chroma），用于修复索引损坏问题，配合 -s 使用",
     )
+    parser.add_argument(
+        "--purge-days",
+        type=int,
+        default=None,
+        metavar="N",
+        help="删除 N 天前的聊天数据（SQLite + ChromaDB），默认不执行",
+    )
     return parser.parse_args()
 
 
@@ -95,6 +102,20 @@ def main():
             log.info(f"已清空向量索引目录: {chroma_path}")
         storage.reset_all_indexed()
         log.info("已将所有消息重置为未索引状态，将重新向量化")
+
+    # --purge-days：删除 N 天前的聊天数据
+    if args.purge_days is not None:
+        purge_days = args.purge_days
+        if purge_days < 1:
+            log.error("--purge-days 必须大于 0")
+            sys.exit(1)
+        deleted_ids, deleted_count = storage.purge_old_messages(purge_days)
+        if deleted_ids:
+            indexer_for_purge = VectorIndexer(config)
+            batch_size = 5000
+            for i in range(0, len(deleted_ids), batch_size):
+                indexer_for_purge.delete_by_ids(deleted_ids[i:i + batch_size])
+            log.info(f"已从向量索引中删除 {len(deleted_ids)} 条记录")
 
     if args.web_only:
         # ------------------------------------------------------------------

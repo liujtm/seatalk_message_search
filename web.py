@@ -38,6 +38,9 @@ _config: dict = {}
 # 同步任务状态
 _sync_status: Dict[str, Any] = {"running": False, "last_result": None}
 
+# 清理任务状态
+_purge_status: Dict[str, Any] = {"running": False, "last_result": None}
+
 
 def init_web(indexer, storage, config: dict) -> None:
     global _indexer, _storage, _config
@@ -234,20 +237,25 @@ async def get_stats():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/sync")
-async def trigger_sync():
+async def trigger_sync(days: int = 0):
     if _sync_status["running"]:
         return JSONResponse({"message": "同步正在进行中，请稍候..."}, status_code=409)
 
-    thread = threading.Thread(target=_run_sync, daemon=True)
+    thread = threading.Thread(target=_run_sync, args=(days,), daemon=True)
     thread.start()
     return {"message": "同步已启动，请稍后刷新页面查看结果"}
 
 
-def _run_sync() -> None:
+def _run_sync(days: int = 0) -> None:
     _sync_status["running"] = True
     try:
         from collector import SeaTalkCollector
-        collector = SeaTalkCollector(_config)
+        sync_config = _config
+        if days > 0:
+            import copy
+            sync_config = copy.deepcopy(_config)
+            sync_config["seatalk"]["time_range_days"] = days
+        collector = SeaTalkCollector(sync_config)
         messages = collector.collect()
 
         new_count = _storage.upsert_messages(messages)
@@ -287,6 +295,56 @@ async def sync_status():
     return {
         "running": _sync_status["running"],
         "last_result": _sync_status["last_result"],
+        "total_messages": _storage.total_message_count() if _storage else 0,
+        "indexed_messages": _indexer.collection_count() if _indexer else 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 清理旧数据 API
+# ---------------------------------------------------------------------------
+
+@app.post("/api/purge")
+async def trigger_purge(days: int = 60):
+    if _purge_status["running"]:
+        return JSONResponse({"message": "清理正在进行中，请稍候..."}, status_code=409)
+    if days < 1:
+        return JSONResponse({"message": "天数必须大于 0"}, status_code=400)
+
+    thread = threading.Thread(target=_run_purge, args=(days,), daemon=True)
+    thread.start()
+    return {"message": f"正在清理 {days} 天前的数据..."}
+
+
+def _run_purge(days: int) -> None:
+    _purge_status["running"] = True
+    try:
+        deleted_ids, deleted_count = _storage.purge_old_messages(days)
+
+        # 分批从 ChromaDB 删除向量
+        batch_size = 5000
+        for i in range(0, len(deleted_ids), batch_size):
+            batch = deleted_ids[i:i + batch_size]
+            _indexer.delete_by_ids(batch)
+
+        _purge_status["last_result"] = {
+            "status": "success",
+            "deleted_count": deleted_count,
+            "days": days,
+        }
+        log.info(f"清理完成：删除 {deleted_count} 条 {days} 天前的数据")
+    except Exception as e:
+        log.error(f"清理失败: {e}", exc_info=True)
+        _purge_status["last_result"] = {"status": "error", "error": str(e)}
+    finally:
+        _purge_status["running"] = False
+
+
+@app.get("/api/purge/status")
+async def purge_status():
+    return {
+        "running": _purge_status["running"],
+        "last_result": _purge_status["last_result"],
         "total_messages": _storage.total_message_count() if _storage else 0,
         "indexed_messages": _indexer.collection_count() if _indexer else 0,
     }

@@ -515,6 +515,38 @@ class SQLiteStorage:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def purge_old_messages(self, days: int = 60) -> tuple:
+        """
+        删除 N 天前的消息，清理孤立会话，记录到 sync_log。
+        返回 (deleted_ids, deleted_count)。
+        """
+        cutoff = int(time.time()) - days * 86400
+        with self._conn() as con:
+            rows = con.execute(
+                "SELECT id FROM messages WHERE timestamp < ?", (cutoff,)
+            ).fetchall()
+            deleted_ids = [r["id"] for r in rows]
+
+            if deleted_ids:
+                con.execute("DELETE FROM messages WHERE timestamp < ?", (cutoff,))
+                # 清理已无消息的孤立会话
+                con.execute(
+                    "DELETE FROM sessions WHERE session_id NOT IN "
+                    "(SELECT DISTINCT session_id FROM messages)"
+                )
+
+            # 记录清理日志
+            con.execute(
+                "INSERT INTO sync_log (synced_at, msg_count, new_count, status) VALUES (?,?,?,?)",
+                (int(time.time()), len(deleted_ids), 0, f"purge:{days}d"),
+            )
+
+        if deleted_ids:
+            log.info(f"已删除 {len(deleted_ids)} 条 {days} 天前的消息")
+        else:
+            log.info(f"没有 {days} 天前的消息需要删除")
+        return deleted_ids, len(deleted_ids)
+
     def total_message_count(self) -> int:
         with self._conn() as con:
             row = con.execute("SELECT COUNT(*) as cnt FROM messages").fetchone()

@@ -337,7 +337,8 @@
       消息 <strong id="totalMsgs">{{ total_messages }}</strong> 条 |
       已索引 <strong id="indexedMsgs">{{ indexed_messages }}</strong> 条
     </div>
-    <button class="stats-link" id="syncBtn" onclick="triggerSync()" style="background:none;cursor:pointer;color:#7dd3fc;">🔄 启动采集最新聊天记录</button>
+    <button class="stats-link" id="syncBtn" onclick="triggerSync()" style="background:none;cursor:pointer;color:#7dd3fc;">🔄 采集最新聊天记录</button>
+    <button class="stats-link" id="purgeBtn" onclick="triggerPurge()" style="background:none;cursor:pointer;color:#f87171;">🗑 清理旧数据</button>
   </div>
 </div>
 
@@ -821,10 +822,15 @@
   // 同步
   // -----------------------------------------------------------------------
   async function triggerSync() {
+    const input = prompt("采集最近几天的聊天记录？", "15");
+    if (input === null) return;
+    const days = parseInt(input, 10);
+    if (isNaN(days) || days < 1) { showToast("请输入有效的天数", true); return; }
+
     const btn = document.getElementById("syncBtn");
     btn.disabled = true;
     try {
-      const res = await fetch("/api/sync", { method: "POST" });
+      const res = await fetch(`/api/sync?days=${days}`, { method: "POST" });
       const data = await res.json();
       showToast(data.message);
       if (res.status !== 409) startSyncPoll();
@@ -853,6 +859,51 @@
             loadSessions(); // 刷新会话列表和发送者列表
           } else if (data.last_result) {
             showToast("同步失败: " + (data.last_result.error || "未知错误"), true);
+          }
+        }
+      } catch(e) {}
+    }, 2000);
+  }
+
+  // -----------------------------------------------------------------------
+  // 清理旧数据
+  // -----------------------------------------------------------------------
+  async function triggerPurge() {
+    const input = prompt("删除多少天前的数据？", "60");
+    if (input === null) return;
+    const days = parseInt(input, 10);
+    if (isNaN(days) || days < 1) { showToast("请输入有效的天数", true); return; }
+    if (!confirm(`确认删除 ${days} 天前的所有聊天数据？此操作不可撤销！`)) return;
+
+    const btn = document.getElementById("purgeBtn");
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/purge?days=${days}`, { method: "POST" });
+      const data = await res.json();
+      showToast(data.message);
+      if (res.status !== 409 && res.status !== 400) startPurgePoll();
+    } catch(err) {
+      showToast("清理失败: " + err.message, true);
+      btn.disabled = false;
+    }
+  }
+
+  function startPurgePoll() {
+    document.getElementById("syncSpinner").style.display = "inline";
+    const timer = setInterval(async () => {
+      try {
+        const data = await (await fetch("/api/purge/status")).json();
+        document.getElementById("totalMsgs").textContent = data.total_messages;
+        document.getElementById("indexedMsgs").textContent = data.indexed_messages;
+        if (!data.running) {
+          clearInterval(timer);
+          document.getElementById("syncSpinner").style.display = "none";
+          document.getElementById("purgeBtn").disabled = false;
+          if (data.last_result?.status === "success") {
+            showToast(`清理完成！删除了 ${data.last_result.deleted_count} 条 ${data.last_result.days} 天前的数据`);
+            loadSessions();
+          } else if (data.last_result) {
+            showToast("清理失败: " + (data.last_result.error || "未知错误"), true);
           }
         }
       } catch(e) {}
