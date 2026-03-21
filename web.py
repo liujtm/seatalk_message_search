@@ -249,6 +249,19 @@ async def trigger_sync(days: int = 0):
 def _run_sync(days: int = 0) -> None:
     _sync_status["running"] = True
     try:
+        # 预检：确认 CDP 端口可达
+        import socket
+        cdp_port = _config.get("seatalk", {}).get("cdp_port", 9222)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3)
+        try:
+            sock.connect(("localhost", cdp_port))
+            sock.close()
+        except (ConnectionRefusedError, OSError):
+            raise RuntimeError(
+                f"CDP 端口 {cdp_port} 不可达，请确认 SeaTalk 已以调试模式启动"
+            )
+
         from collector import SeaTalkCollector
         sync_config = _config
         if days > 0:

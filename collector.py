@@ -73,6 +73,12 @@ class CDPHelper:
             except Exception:
                 pass
 
+    def reconnect(self) -> None:
+        """断开并重新建立 CDP WebSocket 连接"""
+        self.close()
+        time.sleep(2)
+        self.connect()
+
     def _find_seatalk_ws_url(self) -> str:
         resp = requests.get(f"http://localhost:{self.port}/json", timeout=5)
         targets = resp.json()
@@ -103,8 +109,8 @@ class CDPHelper:
                     self._pending[msg_id]["event"].set()
             except websocket.WebSocketConnectionClosedException:
                 break
-            except Exception as e:
-                log.debug(f"CDP recv error: {e}")
+            except Exception:
+                pass  # recv timeout, 继续循环等待下一条消息
 
     def _send(self, method: str, params: dict, timeout: int = 30) -> dict:
         msg_id = self._next_id()
@@ -345,7 +351,7 @@ class SeaTalkCollector:
     # ------------------------------------------------------------------
 
     def _find_active_sessions(self, cutoff_ts: int) -> List[tuple]:
-        """返回 [(sid, msg_count), ...]，按消息数降序"""
+        """返回 [(sid, msg_count), ...]，按消息数降序，带重试"""
         sql = (
             f"SELECT sid, COUNT(*) as cnt, MAX(ts) as last_ts "
             f"FROM chat_message "
@@ -354,9 +360,27 @@ class SeaTalkCollector:
             f"ORDER BY cnt DESC"
         )
         js = f"(async()=>{{ var r=await sqlite.all(`{sql}`); return JSON.stringify(r) }})()"
-        raw = self._cdp.async_evaluate(js)
-        rows = json.loads(raw) if raw else []
-        return [(r["sid"], r["cnt"]) for r in rows]
+
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                # 预检：用轻量查询确认 SQLite 连接真正可用
+                self._cdp.async_evaluate(
+                    "(async()=>{ var r=await sqlite.all('SELECT 1 as ok'); return JSON.stringify(r) })()",
+                    timeout=15,
+                )
+                raw = self._cdp.async_evaluate(js, timeout=120)
+                rows = json.loads(raw) if raw else []
+                return [(r["sid"], r["cnt"]) for r in rows]
+            except (TimeoutError, Exception) as e:
+                log.warning(f"活跃会话查询失败（第 {attempt}/{max_retries} 次）: {e}")
+                if attempt < max_retries:
+                    log.info("正在重连 CDP 并重试...")
+                    self._cdp.reconnect()
+                    # 重连后重新等待 SQLite 就绪
+                    time.sleep(5)
+                else:
+                    raise
 
     def _filter_sessions(
         self, sessions: List[tuple], session_names: Dict[str, str]
