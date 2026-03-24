@@ -88,6 +88,8 @@ async def search(
     session_ids: str = "",       # 逗号分隔的 session_id 列表
     session_type: str = "all",   # "all" | "group" | "contact"
     sender_ids: str = "",        # 逗号分隔的 sender_id 列表
+    content_len_min: int = 0,    # 内容最短长度（0=不限）
+    content_len_max: int = 0,    # 内容最长长度（0=不限）
 ):
     effective_page_size = page_size or _config.get("web", {}).get("page_size", 20)
     top_k = _config.get("web", {}).get("search_top_k", 500)
@@ -107,6 +109,8 @@ async def search(
             time_from=time_from, time_to=time_to,
             session_ids=sid_list or None,
             sender_ids=sndr_list or None,
+            content_len_min=content_len_min,
+            content_len_max=content_len_max,
             page=page, page_size=effective_page_size,
         )
         total_pages = math.ceil(total / effective_page_size) if total else 1
@@ -139,6 +143,12 @@ async def search(
     )
     merged: dict = {}
     for rank, r in enumerate(vector_results):
+        # 向量搜索不支持 LENGTH 过滤，在此按内容长度过滤
+        clen = len(r.get("content") or "")
+        if content_len_min > 0 and clen < content_len_min:
+            continue
+        if content_len_max > 0 and clen > content_len_max:
+            continue
         r["score"] = round(r["score"], 4)
         r["_vector_rank"] = rank
         merged[r["id"]] = r
@@ -151,6 +161,8 @@ async def search(
         time_from=time_from, time_to=time_to,
         session_ids=sid_list or None,
         sender_ids=sndr_list or None,
+        content_len_min=content_len_min,
+        content_len_max=content_len_max,
     )
     # 将关键词搜索结果合并到向量搜索结果中，计算综合得分
     for r in keyword_results:

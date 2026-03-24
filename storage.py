@@ -219,12 +219,14 @@ class SQLiteStorage:
     def keyword_search(self, query: str, limit: int = 500,
                        time_from: int = 0, time_to: int = 0,
                        session_ids: List[str] = None,
-                       sender_ids: List[str] = None) -> List[dict]:
+                       sender_ids: List[str] = None,
+                       content_len_min: int = 0,
+                       content_len_max: int = 0) -> List[dict]:
         """
         按 token 分别做 LIKE 搜索，合并结果并记录每条消息命中了几个 token。
         中文 token 额外展开为单字匹配（如"删除"→同时尝试"删"/"除"），
         使"删一个"也能命中"删除" token。
-        支持 time_from / time_to（Unix 时间戳）和 session_ids 过滤。
+        支持 time_from / time_to（Unix 时间戳）、session_ids 和内容长度过滤。
         返回列表中每条记录额外包含 matched_tokens（int）字段。
         """
         tokens = [t.strip() for t in query.split() if t.strip()]
@@ -248,6 +250,12 @@ class SQLiteStorage:
             ph = ",".join("?" * len(sender_ids))
             filter_clauses.append(f"AND sender_id IN ({ph})")
             filter_params.extend(sender_ids)
+        if content_len_min > 0:
+            filter_clauses.append("AND LENGTH(content) >= ?")
+            filter_params.append(content_len_min)
+        if content_len_max > 0:
+            filter_clauses.append("AND LENGTH(content) <= ?")
+            filter_params.append(content_len_max)
         filter_sql = " ".join(filter_clauses)
 
         merged: dict = {}
@@ -327,6 +335,8 @@ class SQLiteStorage:
         time_to: int = 0,
         session_ids: List[str] = None,
         sender_ids: List[str] = None,
+        content_len_min: int = 0,
+        content_len_max: int = 0,
         page: int = 1,
         page_size: int = 20,
     ):
@@ -346,6 +356,12 @@ class SQLiteStorage:
             ph = ",".join("?" * len(sender_ids))
             clauses.append(f"sender_id IN ({ph})")
             params.extend(sender_ids)
+        if content_len_min > 0:
+            clauses.append("LENGTH(content) >= ?")
+            params.append(content_len_min)
+        if content_len_max > 0:
+            clauses.append("LENGTH(content) <= ?")
+            params.append(content_len_max)
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._conn() as con:

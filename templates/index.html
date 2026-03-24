@@ -528,6 +528,27 @@
       </div>
     </div>
 
+    <!-- 内容长度 -->
+    <div class="filter-group">
+      <div class="filter-label">内容长度</div>
+      <div class="time-btns">
+        <button class="time-btn active" onclick="setContentLen(0, 0, this)">不限</button>
+        <button class="time-btn" onclick="setContentLen(0, 10, this)">≤ 10字</button>
+        <button class="time-btn" onclick="setContentLen(10, 50, this)">10~50字</button>
+        <button class="time-btn" onclick="setContentLen(50, 200, this)">50~200字</button>
+        <button class="time-btn" onclick="setContentLen(200, 0, this)">≥ 200字</button>
+        <button class="time-btn" onclick="showCustomLen(this)">自定义</button>
+      </div>
+      <div class="custom-range" id="customLenRange">
+        <input type="number" id="lenMin" class="date-input" placeholder="最短" min="0"
+               style="width:70px" onchange="applyCustomLen()" />
+        <span style="color:#94a3b8;font-size:0.8rem">~</span>
+        <input type="number" id="lenMax" class="date-input" placeholder="最长" min="0"
+               style="width:70px" onchange="applyCustomLen()" />
+        <span style="color:#94a3b8;font-size:0.8rem">字</span>
+      </div>
+    </div>
+
     <!-- 发送者选择 -->
     <div class="filter-group" id="filterSenderWrap">
       <div class="filter-label">群聊发送者</div>
@@ -655,6 +676,10 @@
   // 会话类型过滤
   let sessionType = "all";
 
+  // 内容长度过滤
+  let contentLenMin = 0;
+  let contentLenMax = 0;
+
   // 多选状态：{ msId -> { id -> {id, name, checked, count} } }
   const msData = { msGroups: {}, msContacts: {}, msSenders: {} };
   const msDefaultLabel = { msGroups: "全部群", msContacts: "全部私聊", msSenders: "全部群成员" };
@@ -710,6 +735,31 @@
     const to = document.getElementById("dateTo").value;
     timeFrom = from ? Math.floor(new Date(from).getTime() / 1000) : 0;
     timeTo = to ? Math.floor(new Date(to + "T23:59:59").getTime() / 1000) : 0;
+  }
+
+  // -----------------------------------------------------------------------
+  // 内容长度
+  // -----------------------------------------------------------------------
+  function setContentLen(min, max, btn) {
+    contentLenMin = min;
+    contentLenMax = max;
+    btn.closest(".filter-group").querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("customLenRange").classList.remove("show");
+  }
+
+  function showCustomLen(btn) {
+    btn.closest(".filter-group").querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("customLenRange").classList.add("show");
+    applyCustomLen();
+  }
+
+  function applyCustomLen() {
+    const min = parseInt(document.getElementById("lenMin").value, 10);
+    const max = parseInt(document.getElementById("lenMax").value, 10);
+    contentLenMin = isNaN(min) ? 0 : min;
+    contentLenMax = isNaN(max) ? 0 : max;
   }
 
   // -----------------------------------------------------------------------
@@ -890,6 +940,8 @@
     if (sessionIds.length) url += `&session_ids=${sessionIds.map(encodeURIComponent).join(",")}`;
     else if (sessionType !== "all") url += `&session_type=${sessionType}`;
     if (senderIds.length)  url += `&sender_ids=${senderIds.map(encodeURIComponent).join(",")}`;
+    if (contentLenMin > 0) url += `&content_len_min=${contentLenMin}`;
+    if (contentLenMax > 0) url += `&content_len_max=${contentLenMax}`;
 
     document.getElementById("loading").style.display = "block";
     document.getElementById("results").innerHTML = "";
