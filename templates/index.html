@@ -326,6 +326,104 @@
       max-width: 300px;
     }
     .toast.show { opacity: 1; }
+
+    /* 自定义弹窗 */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(4px);
+      z-index: 300;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; visibility: hidden;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+    .modal-overlay.open { opacity: 1; visibility: visible; }
+    .modal {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+      width: 380px;
+      max-width: 90vw;
+      transform: translateY(12px) scale(0.97);
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      overflow: hidden;
+    }
+    .modal-overlay.open .modal { transform: translateY(0) scale(1); }
+    .modal-header {
+      padding: 20px 24px 0;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .modal-icon {
+      width: 38px; height: 38px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.15rem; flex-shrink: 0;
+    }
+    .modal-icon.sync { background: #dbeafe; }
+    .modal-icon.purge { background: #fee2e2; }
+    .modal-title { font-size: 1.02rem; font-weight: 600; color: #1e293b; }
+    .modal-body { padding: 16px 24px 4px; }
+    .modal-desc { font-size: 0.85rem; color: #64748b; line-height: 1.5; margin-bottom: 16px; }
+    .modal-field { display: flex; flex-direction: column; gap: 6px; }
+    .modal-label { font-size: 0.8rem; font-weight: 500; color: #475569; }
+    .modal-input-row { display: flex; align-items: center; gap: 8px; }
+    .modal-input {
+      width: 90px;
+      padding: 8px 12px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 1rem;
+      text-align: center;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .modal-input:focus { border-color: #3b82f6; }
+    .modal-input.error { border-color: #ef4444; }
+    .modal-unit { font-size: 0.88rem; color: #64748b; }
+    .modal-presets { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    .modal-preset {
+      padding: 4px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: #f8fafc;
+      font-size: 0.8rem;
+      color: #475569;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .modal-preset:hover { background: #e2e8f0; }
+    .modal-preset.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+    .modal-warn {
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #fef2f2;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: #b91c1c;
+      line-height: 1.5;
+      display: none;
+    }
+    .modal-warn.show { display: block; }
+    .modal-footer {
+      padding: 16px 24px 20px;
+      display: flex; justify-content: flex-end; gap: 8px;
+    }
+    .modal-btn {
+      padding: 8px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .modal-btn:active { transform: scale(0.97); }
+    .modal-btn-cancel { background: #f1f5f9; color: #475569; }
+    .modal-btn-cancel:hover { background: #e2e8f0; }
+    .modal-btn-primary { background: #3b82f6; color: #fff; }
+    .modal-btn-primary:hover { background: #2563eb; }
+    .modal-btn-danger { background: #ef4444; color: #fff; }
+    .modal-btn-danger:hover { background: #dc2626; }
   </style>
 </head>
 <body>
@@ -479,6 +577,68 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- 采集弹窗 -->
+<div class="modal-overlay" id="syncModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-icon sync">🔄</div>
+      <div class="modal-title">采集聊天记录</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-desc">从 SeaTalk 采集最近的聊天记录并建立向量索引，需要 SeaTalk 以调试模式运行。</div>
+      <div class="modal-field">
+        <div class="modal-label">采集范围</div>
+        <div class="modal-input-row">
+          <span class="modal-unit">最近</span>
+          <input type="number" class="modal-input" id="syncDaysInput" value="15" min="1" max="365" />
+          <span class="modal-unit">天</span>
+        </div>
+        <div class="modal-presets" id="syncPresets">
+          <button class="modal-preset" data-val="3">3 天</button>
+          <button class="modal-preset" data-val="7">7 天</button>
+          <button class="modal-preset active" data-val="15">15 天</button>
+          <button class="modal-preset" data-val="30">30 天</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" onclick="closeModal('syncModal')">取消</button>
+      <button class="modal-btn modal-btn-primary" onclick="confirmSync()">开始采集</button>
+    </div>
+  </div>
+</div>
+
+<!-- 清理弹窗 -->
+<div class="modal-overlay" id="purgeModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-icon purge">🗑</div>
+      <div class="modal-title">清理旧数据</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-desc">永久删除指定天数之前的聊天数据，同时清除对应的向量索引。</div>
+      <div class="modal-field">
+        <div class="modal-label">清理范围</div>
+        <div class="modal-input-row">
+          <input type="number" class="modal-input" id="purgeDaysInput" value="60" min="1" max="9999" />
+          <span class="modal-unit">天前的数据</span>
+        </div>
+        <div class="modal-presets" id="purgePresets">
+          <button class="modal-preset" data-val="30">30 天</button>
+          <button class="modal-preset active" data-val="60">60 天</button>
+          <button class="modal-preset" data-val="90">90 天</button>
+          <button class="modal-preset" data-val="180">180 天</button>
+        </div>
+      </div>
+      <div class="modal-warn" id="purgeWarn">此操作不可撤销，删除后数据无法恢复。</div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" onclick="closeModal('purgeModal')">取消</button>
+      <button class="modal-btn modal-btn-danger" onclick="confirmPurge()">确认删除</button>
+    </div>
+  </div>
+</div>
 
 <script>
   // -----------------------------------------------------------------------
@@ -819,13 +979,79 @@
   }
 
   // -----------------------------------------------------------------------
+  // 自定义弹窗
+  // -----------------------------------------------------------------------
+  function openModal(id) {
+    const overlay = document.getElementById(id);
+    overlay.classList.add("open");
+    // 显示警告（仅 purge）
+    if (id === "purgeModal") updatePurgeWarn();
+    // 聚焦输入框
+    const input = overlay.querySelector(".modal-input");
+    if (input) setTimeout(() => { input.focus(); input.select(); }, 150);
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove("open");
+  }
+
+  // 点击遮罩关闭
+  document.querySelectorAll(".modal-overlay").forEach(el => {
+    el.addEventListener("click", e => { if (e.target === el) closeModal(el.id); });
+  });
+
+  // ESC 关闭
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      document.querySelectorAll(".modal-overlay.open").forEach(el => closeModal(el.id));
+    }
+  });
+
+  // 预设按钮绑定
+  function setupPresets(wrapperId, inputId) {
+    document.getElementById(wrapperId).addEventListener("click", e => {
+      const btn = e.target.closest(".modal-preset");
+      if (!btn) return;
+      document.getElementById(inputId).value = btn.dataset.val;
+      document.querySelectorAll(`#${wrapperId} .modal-preset`).forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      if (wrapperId === "purgePresets") updatePurgeWarn();
+    });
+    document.getElementById(inputId).addEventListener("input", () => {
+      document.querySelectorAll(`#${wrapperId} .modal-preset`).forEach(b => {
+        b.classList.toggle("active", b.dataset.val === document.getElementById(inputId).value);
+      });
+      if (wrapperId === "purgePresets") updatePurgeWarn();
+    });
+  }
+  setupPresets("syncPresets", "syncDaysInput");
+  setupPresets("purgePresets", "purgeDaysInput");
+
+  function updatePurgeWarn() {
+    const warn = document.getElementById("purgeWarn");
+    const val = parseInt(document.getElementById("purgeDaysInput").value, 10);
+    warn.classList.toggle("show", !isNaN(val) && val > 0);
+  }
+
+  // Enter 确认
+  document.getElementById("syncDaysInput").addEventListener("keydown", e => { if (e.key === "Enter") confirmSync(); });
+  document.getElementById("purgeDaysInput").addEventListener("keydown", e => { if (e.key === "Enter") confirmPurge(); });
+
+  // -----------------------------------------------------------------------
   // 同步
   // -----------------------------------------------------------------------
   async function triggerSync() {
-    const input = prompt("采集最近几天的聊天记录？", "15");
-    if (input === null) return;
-    const days = parseInt(input, 10);
-    if (isNaN(days) || days < 1) { showToast("请输入有效的天数", true); return; }
+    openModal("syncModal");
+  }
+
+  async function confirmSync() {
+    const days = parseInt(document.getElementById("syncDaysInput").value, 10);
+    if (isNaN(days) || days < 1) {
+      document.getElementById("syncDaysInput").classList.add("error");
+      setTimeout(() => document.getElementById("syncDaysInput").classList.remove("error"), 1500);
+      return;
+    }
+    closeModal("syncModal");
 
     const btn = document.getElementById("syncBtn");
     btn.disabled = true;
@@ -869,11 +1095,17 @@
   // 清理旧数据
   // -----------------------------------------------------------------------
   async function triggerPurge() {
-    const input = prompt("删除多少天前的数据？", "60");
-    if (input === null) return;
-    const days = parseInt(input, 10);
-    if (isNaN(days) || days < 1) { showToast("请输入有效的天数", true); return; }
-    if (!confirm(`确认删除 ${days} 天前的所有聊天数据？此操作不可撤销！`)) return;
+    openModal("purgeModal");
+  }
+
+  async function confirmPurge() {
+    const days = parseInt(document.getElementById("purgeDaysInput").value, 10);
+    if (isNaN(days) || days < 1) {
+      document.getElementById("purgeDaysInput").classList.add("error");
+      setTimeout(() => document.getElementById("purgeDaysInput").classList.remove("error"), 1500);
+      return;
+    }
+    closeModal("purgeModal");
 
     const btn = document.getElementById("purgeBtn");
     btn.disabled = true;
