@@ -253,14 +253,15 @@ class SQLiteStorage:
         merged: dict = {}
         with self._conn() as con:
             for token in tokens:
-                # jieba 分词展开：仅保留 ≥2字的实词作为子词，单字虚词丢弃
-                # 例："事情在并行" → ["事情", "并行"]；"删除" → (无子词)
+                # 用 lcut_for_search 拆分 token 为子词（搜索引擎模式）
+                # 例："会议纪要" → ["会议", "纪要"]，使搜索能匹配到"会议结论"等相关内容
+                # 仅保留 ≥2 字且不等于 token 本身的子词
                 sub_words = [
-                    w for w in jieba.lcut(token, cut_all=False)
+                    w for w in jieba.lcut_for_search(token)
                     if len(w) >= 2 and w != token
                 ]
 
-                # 先查完整短语命中的 id，标记为精确命中
+                # 第一层：精确短语匹配（如 LIKE '%会议纪要%'）
                 phrase_hit_ids: set = set()
                 rows = con.execute(
                     f"SELECT id FROM messages WHERE content LIKE ? {filter_sql} LIMIT ?",
@@ -269,15 +270,22 @@ class SQLiteStorage:
                 for row in rows:
                     phrase_hit_ids.add(row["id"])
 
-                # 再查子词命中的 id
+                # 第二/三层：逐个子词匹配，记录每条消息命中了几个子词
+                # sub_word_hits[id]=2 表示同时含"会议"和"纪要"（第二层）
+                # sub_word_hits[id]=1 表示只含其中一个（第三层）
                 char_hit_ids: set = set()
+                sub_word_hits: dict = {}
                 for word in sub_words:
+                    word_hit_ids: set = set()
                     rows = con.execute(
                         f"SELECT id FROM messages WHERE content LIKE ? {filter_sql} LIMIT ?",
                         [f"%{word}%"] + filter_params + [limit],
                     ).fetchall()
                     for row in rows:
-                        char_hit_ids.add(row["id"])
+                        word_hit_ids.add(row["id"])
+                    char_hit_ids |= word_hit_ids
+                    for mid in word_hit_ids:
+                        sub_word_hits[mid] = sub_word_hits.get(mid, 0) + 1
 
                 token_hit_ids = phrase_hit_ids | char_hit_ids
 
@@ -295,14 +303,20 @@ class SQLiteStorage:
                 ).fetchall()
                 for row in rows:
                     r = dict(row)
+                    swc = sub_word_hits.get(r["id"], 0)
                     if r["id"] in merged:
                         merged[r["id"]]["matched_tokens"] += 1
-                        # 有一次是精确短语命中就标记
                         if r["id"] in phrase_hit_ids:
                             merged[r["id"]]["phrase_match"] = True
+                        # 累加子词命中数，用于排序时区分"双词命中"和"单词命中"
+                        merged[r["id"]]["sub_word_match_count"] = (
+                            merged[r["id"]].get("sub_word_match_count", 0) + swc
+                        )
                     else:
                         r["matched_tokens"] = 1
+                        # phrase_match=True 表示内容包含完整 token 子串
                         r["phrase_match"] = r["id"] in phrase_hit_ids
+                        r["sub_word_match_count"] = swc
                         merged[r["id"]] = r
 
         return list(merged.values())

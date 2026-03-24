@@ -152,25 +152,51 @@ async def search(
         session_ids=sid_list or None,
         sender_ids=sndr_list or None,
     )
+    # 将关键词搜索结果合并到向量搜索结果中，计算综合得分
     for r in keyword_results:
-        match_ratio = r.get("matched_tokens", 1) / total_tokens
+        matched_tokens = r.get("matched_tokens", 1)
+        match_ratio = matched_tokens / total_tokens
         is_phrase = r.get("phrase_match", False)
-        # 精确短语命中额外加分：确保排在仅语义相近的向量结果前面
+        sub_word_count = r.get("sub_word_match_count", 0)
         phrase_bonus = 0.35 if is_phrase else 0.0
         bonus = round(0.4 * match_ratio + phrase_bonus, 4)
         if r["id"] in merged:
+            # 该消息同时被向量搜索和关键词搜索命中，叠加得分
             merged[r["id"]]["score"] = min(1.0, merged[r["id"]]["score"] + bonus)
             merged[r["id"]]["_keyword_hit"] = True
+            if is_phrase:
+                merged[r["id"]]["_phrase_match"] = True
+            merged[r["id"]]["_sub_word_match_count"] = max(
+                merged[r["id"]].get("_sub_word_match_count", 0), sub_word_count
+            )
+            merged[r["id"]]["_matched_tokens"] = max(
+                merged[r["id"]].get("_matched_tokens", 0), matched_tokens
+            )
         else:
-            # 纯关键词命中：精确短语 0.95，普通 0.6
+            # 该消息仅被关键词搜索命中，给一个基础分
             r["score"] = round((0.6 + phrase_bonus) * match_ratio + phrase_bonus * 0.05, 4) if is_phrase \
                 else round(0.5 + 0.1 * match_ratio, 4)
             r["_keyword_hit"] = True
             r["_vector_rank"] = len(merged) + 9999
+            if is_phrase:
+                r["_phrase_match"] = True
+            r["_sub_word_match_count"] = sub_word_count
+            r["_matched_tokens"] = matched_tokens
             merged[r["id"]] = r
 
+    # 四级排序（无空格和有空格的查询行为统一）：
+    # 1. _phrase_match        — 完全包含原始搜索词的排最前（如 LIKE '%会议纪要%'）
+    # 2. _sub_word_match_count — 命中子词越多越靠前（针对无空格输入，如"会议纪要"拆出的子词）
+    # 3. _matched_tokens      — 命中 token 越多越靠前（针对有空格输入，如"会议 纪要"的两个 token）
+    # 4. score / timestamp    — 相同层级内按综合得分和时间排序
     results = list(merged.values())
-    results.sort(key=lambda x: (x["score"], x["timestamp"]), reverse=True)
+    results.sort(key=lambda x: (
+        x.get("_phrase_match", False),
+        x.get("_sub_word_match_count", 0),
+        x.get("_matched_tokens", 0),
+        x["score"],
+        x["timestamp"],
+    ), reverse=True)
 
     total = len(results)
     total_pages = math.ceil(total / effective_page_size) if total else 1
@@ -182,6 +208,9 @@ async def search(
         ts = r.get("timestamp", 0)
         r["datetime"] = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else ""
         r.pop("_vector_rank", None)
+        r.pop("_phrase_match", None)
+        r.pop("_sub_word_match_count", None)
+        r.pop("_matched_tokens", None)
 
     return {
         "query": q,
