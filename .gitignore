@@ -22,6 +22,9 @@ __pycache__/
 # Claude Code 会话数据
 .claude/
 
+# Cursor 配置与技能
+.cursor/
+
 # 虚拟环境
 .venv/
 venv/
