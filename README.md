@@ -11,7 +11,7 @@
 - **语义搜索**：基于向量相似度匹配
 - **中英文支持**：embedding 模型原生支持中文和英文
 - **本地运行**：模型和数据全部本地存储，无需联网，不上传任何聊天内容
-- **自动采集**：启动时自动重启 SeaTalk（调试模式），采集完成后立即可搜索
+- **自动采集**：启动时自动启动 SeaTalk，通过运行时注入开启 CDP 调试协议，采集完成后立即可搜索
 - **增量同步**：已采集的消息不重复写入，Web 界面支持随时手动触发同步并指定采集天数
 - **数据清理**：支持通过命令行或 Web 界面清理 N 天前的旧数据（SQLite + 向量索引同步删除）
 - **群组过滤**：通过正则配置忽略指定群（默认过滤含"告警"的群）
@@ -23,7 +23,7 @@
 | 类别 | 技术/组件 | 主要用途 |
 |------|-----------|----------|
 | 运行环境 | Python 3.10+ | 项目主运行时 |
-| 消息采集 | Chrome DevTools Protocol (CDP) + `websocket-client` + `requests` | 连接 SeaTalk 渲染进程并注入 JS，读取本地聊天数据 |
+| 消息采集 | Chrome DevTools Protocol (CDP) + `websocket-client` + `requests` | 通过 SIGUSR1 + Node Inspector 注入 CDP 代理，连接 SeaTalk 渲染进程读取本地聊天数据 |
 | 本地结构化存储 | SQLite（`sqlite3`） | 持久化消息、会话与同步日志，支持关键词过滤查询 |
 | 向量模型 | `sentence-transformers` | 将消息文本编码为语义向量 |
 | 向量数据库 | `chromadb` | 存储 embedding，执行语义相似度检索 |
@@ -66,9 +66,9 @@ python main.py [-h] [-w] [-s] [--days N] [--purge-days N]
 
 **完整流程**（`python main.py`）依次执行：
 
-1. 关闭已运行的 SeaTalk
-2. 以 CDP 调试模式重新启动 SeaTalk
-3. 等待你登录并确认（按 Enter）
+1. 检查 SeaTalk 是否运行，未运行则自动启动
+2. 等待你登录并确认界面正常（按 Enter）
+3. 通过 SIGUSR1 信号向 SeaTalk 主进程注入 CDP 代理（不修改 SeaTalk 本身）
 4. 采集最近 N 天的聊天记录
 5. 写入 SQLite，生成向量索引
 6. 启动搜索服务：[http://127.0.0.1:12345](http://127.0.0.1:12345)
@@ -107,7 +107,8 @@ web:
 ```
 seatalk_message_search/
 ├── main.py          # 入口
-├── launcher.py      # SeaTalk 进程管理（关闭/重启/验证）
+├── launcher.py      # SeaTalk 进程管理（启动/CDP 注入/验证）
+├── cdp_injector.py  # CDP 代理注入器（SIGUSR1 + Node Inspector）
 ├── collector.py     # CDP 消息采集与内容解析
 ├── storage.py       # SQLite 持久化
 ├── indexer.py       # 向量索引与语义搜索（ChromaDB）
@@ -131,7 +132,10 @@ seatalk_message_search/
 适当增大 `time_range_days`。SeaTalk 本地只缓存已加载过的消息，若历史消息未在客户端浏览过则不会被采集到。
 
 **Q: CDP 连接失败？**
-确认 SeaTalk 已完全加载并登录，再按 Enter。若仍失败，检查 `cdp_port` 配置是否与实际端口一致。
+确认 SeaTalk 已完全加载并登录，再按 Enter。程序会通过 SIGUSR1 信号注入 CDP 代理，若注入失败，可能原因：
+- SeaTalk 未完全启动或未登录
+- 端口 9229（Node Inspector）或 9222（CDP）被其他进程占用
+- SeaTalk 版本更新导致 Electron 行为变化
 
 **Q: 搜索结果相关度低？**
 尝试换用更长、更具体的描述，避免使用单个词语搜索。
@@ -152,12 +156,12 @@ seatalk_message_search/
        ▼                  ▼
 ┌──────────────┐   ┌─────────────────────────────────────┐
 │  launcher.py │   │          collector.py               │
+│  +           │   │                                     │
+│  cdp_injector│   │  CDPHelper ─── WebSocket ──► SeaTalk│
 │              │   │                                     │
-│ 关闭并重启   │   │  CDPHelper ─── WebSocket ──► SeaTalk│
-│ SeaTalk，    │   │                                     │
-│ 开启 CDP     │   │  向渲染进程注入 JavaScript           │
-│ 调试模式     │   │  ┌──────────────────────────────┐   │
-│ port=9222    │   │  │ store.getState()  (Redux)    │   │
+│ SIGUSR1 →    │   │  向渲染进程注入 JavaScript           │
+│ Node Inspector│  │  ┌──────────────────────────────┐   │
+│ → CDP Proxy  │   │  │ store.getState()  (Redux)    │   │
 └──────────────┘   │  │ sqlite.all(SQL)   (internal) │   │
                    │  └──────────────┬───────────────┘   │
                    │                 │                    │
@@ -212,6 +216,15 @@ seatalk_message_search/
 ```
 
 SeaTalk 基于 Electron 构建，内部的 SQLite 数据库通过渲染进程暴露的 `window.sqlite` 对象可直接查询。通过 Chrome DevTools Protocol（CDP）向渲染进程注入 JavaScript，即可在不解密数据库文件的前提下读取聊天记录。
+
+### CDP 代理注入原理
+
+新版 SeaTalk（Electron）封堵了 `--remote-debugging-port` 启动参数（macOS 上 Electron relauncher 会重新执行二进制并丢弃命令行参数），本项目通过以下步骤在运行时恢复 CDP 访问，**不修改 SeaTalk 任何文件**：
+
+1. **SIGUSR1 信号** — 向 SeaTalk 主进程发送 `SIGUSR1`，触发 Node.js/V8 内置的 Inspector 在 9229 端口监听
+2. **Node Inspector WebSocket** — 连接 Inspector 的 WebSocket，通过 `Runtime.evaluate` 在主进程中执行 JavaScript
+3. **注入 CDP 代理** — 注入的 JS 利用 Electron 的 `webContents.debugger` API 创建一个 HTTP + WebSocket 代理服务器，在 9222 端口暴露标准 CDP 协议
+4. **正常使用** — 外部工具（如本项目的 `collector.py`）通过 `localhost:9222` 正常进行 CDP 通信
 
 ### 关键对象：`sqlite` 与 `store`
 

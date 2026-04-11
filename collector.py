@@ -83,11 +83,17 @@ class CDPHelper:
         resp = requests.get(f"http://localhost:{self.port}/json", timeout=5)
         targets = resp.json()
         for t in targets:
-            if t.get("type") == "page" and "SeaTalk" in t.get("title", ""):
-                url = t.get("webSocketDebuggerUrl", "")
-                if url:
-                    return url
-        raise RuntimeError("未找到 SeaTalk 渲染页面的 CDP target，请确认 SeaTalk 已登录")
+            if t.get("type") != "page":
+                continue
+            url = t.get("url", "")
+            title = t.get("title", "")
+            if "haiserve.com" in url or "SeaTalk" in title:
+                ws = t.get("webSocketDebuggerUrl", "")
+                if ws:
+                    return ws
+        raise RuntimeError(
+            "未找到 SeaTalk 渲染页面的 CDP target，请确认 SeaTalk 已登录"
+        )
 
     # ------------------------------------------------------------------
     # 消息收发
