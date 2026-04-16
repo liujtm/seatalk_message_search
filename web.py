@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from logger import get_logger
@@ -19,6 +20,7 @@ from logger import get_logger
 log = get_logger()
 
 app = FastAPI(title="SeaTalk 语义搜索")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 # 自定义 Jinja2 过滤器
